@@ -15,7 +15,7 @@ import yfinance as yf
 
 import backtest
 import stocks
-from config import ASSETS, REGIMES
+from config import ASSETS, REGIMES, SCORE_LABELS, SCORE_RULES, SCORE_THRESHOLD
 
 OUT = Path(__file__).parent / "docs"
 HISTORY_MONTHS = 24
@@ -184,6 +184,13 @@ details table{margin-top:4px}
 .sm{display:grid;grid-template-columns:repeat(4,1fr);gap:8px 6px;margin-top:8px}
 .sm small{display:block;color:var(--muted);font-size:11px}
 .sm b{font-weight:600;font-size:13px}
+.score{margin-left:auto;min-width:34px;text-align:center;padding:1px 8px;border-radius:9999px;background:var(--elev);color:var(--muted2);font-weight:700;font-size:13px}
+.score.hi{background:var(--primary);color:var(--ink)}
+.sh .sw{margin-left:0}
+.chip{background:var(--card);border:1px solid var(--hair);color:var(--body);font:inherit;font-size:13px;font-weight:600;padding:6px 14px;border-radius:9999px;cursor:pointer}
+.chip.on{background:var(--primary);border-color:var(--primary);color:var(--ink)}
+.only-hi .stock:not(.hi){display:none}
+.why{margin-top:4px}.why summary{font-size:12px;padding:6px 0 0}.why .sm{margin-top:6px}
 footer{background:var(--soft);color:var(--ink);padding:40px 0}
 footer p{margin:0;font-size:13px;line-height:1.7;max-width:760px}
 footer b{display:block;margin-bottom:8px;font-size:14px}
@@ -207,6 +214,10 @@ panes.forEach(p=>p.classList.toggle('on',p.id===id));tabs.forEach(t=>t.classList
 tabs.forEach(t=>t.addEventListener('click',()=>{location.hash=t.dataset.tab;window.scrollTo(0,0)}));
 window.addEventListener('hashchange',()=>show(location.hash.slice(1)));
 show(location.hash.slice(1));
+const oh=document.getElementById('onlyhi');
+if(oh){oh.addEventListener('click',()=>{const on=document.getElementById('stocks').classList.toggle('only-hi');oh.classList.toggle('on',on);
+document.querySelectorAll('#stocks .stocks > .card').forEach(c=>{c.style.display=(on&&!c.querySelector('.stock.hi'))?'none':'';
+c.querySelectorAll('details:not(.why)').forEach(d=>{if(on&&d.querySelector('.stock.hi'))d.open=true})})})}
 """
 
 LINES = [("전략", "#FCD535", 2.5), ("SPY", "#eaecef", 1.5), ("60/40", "#707a8a", 1.5)]
@@ -277,20 +288,48 @@ def _cell(label, value):
 
 def stock_item(s) -> str:
     e = html.escape
+    sc = s["score"]
+    total = sc["total"]
+    hi = total is not None and total >= SCORE_THRESHOLD
+    badge = (f'<span class="score num{" hi" if hi else ""}">{total:.0f}</span>' if total is not None
+             else '<span class="score num na">-</span>')
+    groups = "".join(_cell(g, "-" if v is None else f"{v:.0f}") for g, v in sc["groups"].items())
+    why = (f'<details class="why"><summary>점수 상세 · 데이터 {sc["coverage"]*100:.0f}%</summary>'
+           f'<div class="sm">{groups}</div></details>')
     fwd = f'{s["fwd_pe"]:.1f}배' if s.get("fwd_pe") else "-"
     ed = "-"
     if s.get("earnings"):
         y, m, d = s["earnings"].split("-")
         ed = f"{int(m)}/{int(d)}"
     return (
-        f'<div class="stock"><div class="sh"><span class="tk">{e(s["symbol"])}</span>'
-        f'<span class="nm">{e(s["name"])}</span><span class="sw num">ETF 내 {s["etf_weight"]*100:.1f}%</span></div>'
+        f'<div class="stock{" hi" if hi else ""}"><div class="sh"><span class="tk">{e(s["symbol"])}</span>'
+        f'<span class="nm">{e(s["name"])}</span><span class="sw num">ETF 내 {s["etf_weight"]*100:.1f}%</span>{badge}</div>'
         '<div class="sm">'
         + _cell("3개월", pct(s["m3"])) + _cell("12개월", pct(s["m12"]))
         + _cell("변동성", f'{s["vol"]*100:.0f}%') + _cell("200일선", pct(s["ma200"]))
         + _cell("52주 고점", pct(s["from_high"])) + _cell("선행 PER", fwd) + _cell("다음 실적", ed)
-        + "</div></div>"
+        + "</div>" + why + "</div>"
     )
+
+
+def _rule_fmt(key, v):
+    if key == "debt_eq":
+        return f"{v:.0f}%"
+    if key == "fwd_pe":
+        return f"{v:.0f}배"
+    return f"{v*100:.0f}%"
+
+
+def criteria_card() -> str:
+    rows = "".join(
+        f'<tr><td>{html.escape(SCORE_LABELS[k])}<div class="nm" style="margin:0">{g}</div></td><td class="r num">{w}</td>'
+        f'<td class="r num">{_rule_fmt(k, lo)}</td><td class="r num">{_rule_fmt(k, hi)}</td></tr>'
+        for k, (g, w, lo, hi) in SCORE_RULES.items()
+    )
+    return f"""<details class="card"><summary style="margin:0;color:var(--white);font-weight:600;font-size:15px">점수 기준 보기</summary>
+<table style="margin-top:12px"><tr><th>지표</th><th>가중치</th><th>0점</th><th>100점</th></tr>{rows}</table>
+<p class="note">지표마다 0점·100점 기준 사이를 직선으로 환산한 뒤 가중 평균합니다. 값이 없는 지표는 제외하고 남은 가중치로 환산하며, 가중치 기준 60% 미만만 있으면 점수를 내지 않습니다. {SCORE_THRESHOLD}점 이상이면 노란색으로 강조합니다.</p>
+<p class="note">기준값·가중치·강조 점수는 과거 경험으로 정한 것이며, 과거 시점의 재무 데이터를 무료로 복원할 수 없어 수익률로 검증하지 못했습니다. 높은 점수가 높은 수익을 뜻하지 않으며, 점수는 후보를 좁히기 위한 참고용입니다. 수치는 Yahoo Finance 기준이고 오류나 누락이 있을 수 있습니다.</p></details>"""
 
 
 def stocks_pane(groups) -> str:
@@ -306,9 +345,12 @@ def stocks_pane(groups) -> str:
             f'<div class="card"><div class="sechead"><h2>{g["etf"]} {html.escape(g["name"])}</h2>'
             f'<span class="tag">추천 비중 {g["weight"]}%</span></div>{first}{more}</div>'
         )
+    scored = [s for g in groups for s in g["stocks"] if s["score"]["total"] is not None]
+    n_hi = sum(1 for s in scored if s["score"]["total"] >= SCORE_THRESHOLD)
     return f"""<div class="pagehead"><h2>관심 종목 후보</h2>
-<div class="sub" style="margin:4px 0 0">현재 국면의 추천 섹터 ETF에서 비중이 큰 종목</div></div>
-<div class="stocks">{cards}</div>
+<div class="sub" style="margin:4px 0 12px">현재 국면의 추천 섹터 ETF에서 비중이 큰 종목 · 점수 {SCORE_THRESHOLD}점 이상 {n_hi}개 / 점수 산출 {len(scored)}개</div>
+<button class="chip" id="onlyhi" type="button">{SCORE_THRESHOLD}점 이상만 보기</button></div>
+<div class="stocks">{cards}</div><div style="margin-top:16px">{criteria_card()}</div>
 <p class="note">참고용 후보 목록이며 매수 추천이 아닙니다. 시가총액 비중이 큰 종목일 뿐 저평가나 상승을 뜻하지 않습니다. 개별 종목은 ETF보다 변동이 크고 한 종목에 집중하면 크게 손실날 수 있으며, 이 종목 목록은 백테스트하지 않았습니다. 변동성은 최근 1년 연환산 값, 200일선·52주 고점은 현재가와의 차이, 선행 PER은 예상 이익 기준이며 데이터에 따라 비어 있을 수 있습니다.</p>"""
 
 
