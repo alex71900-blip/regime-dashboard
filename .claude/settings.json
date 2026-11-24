@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "SendMessage",
+      "ListAgents",
+      "mcp__claude-code-remote__send_message",
+      "mcp__claude-code-remote__list_sessions",
+      "mcp__claude-code-remote__list_events"
+    ]
+  }
+}
