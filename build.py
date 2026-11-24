@@ -14,6 +14,7 @@ import requests
 import yfinance as yf
 
 import backtest
+import stocks
 from config import ASSETS, REGIMES
 
 OUT = Path(__file__).parent / "docs"
@@ -165,6 +166,8 @@ td.r{text-align:right;white-space:nowrap;font-weight:500}
 .legend i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
 details{margin-top:12px}summary{cursor:pointer;color:var(--muted2);font-size:13px;padding:8px 0}
 details table{margin-top:4px}
+.stk td,.stk th{font-size:13px}.stk .nm{display:block;margin:0;font-size:11px}
+@media(max-width:480px){.stk td,.stk th{font-size:12px}}
 footer{background:var(--soft);color:var(--ink);padding:48px 0}
 footer p{margin:0;font-size:13px;line-height:1.7;max-width:760px}
 footer b{display:block;margin-bottom:8px;font-size:14px}
@@ -236,7 +239,30 @@ def backtest_card(bt) -> str:
 <p class="note">월간 경제지표는 45일 지연해 반영했지만 수정 후 확정치를 쓰고, 추천 비중은 과거 경험에 기반해 정한 값이라 실제 미래 성과를 보장하지 않습니다. 과거 성과는 미래를 보장하지 않으며, 이 기간(2007~)에는 금리 인하와 장기 상승장이 포함돼 있습니다.</p></div>"""
 
 
-def render(now, cur, history, p, bt):
+def stocks_card(groups) -> str:
+    if not groups:
+        return ""
+    blocks = ""
+    for g in groups:
+        rows = "".join(
+            f'<tr><td><span class="tk">{html.escape(s["symbol"])}</span>'
+            f'<span class="nm">{html.escape(s["name"])}</span></td>'
+            f'<td class="r num">{s["etf_weight"]*100:.1f}%</td>'
+            f'<td class="r num">{pct(s["m3"])}</td><td class="r num">{pct(s["m12"])}</td>'
+            f'<td class="r num">{s["vol"]*100:.0f}%</td><td class="r num">{pct(s["ma200"])}</td></tr>'
+            for s in g["stocks"]
+        )
+        blocks += (
+            f'<h3>{g["etf"]} {html.escape(g["name"])} · 추천 비중 {g["weight"]}%</h3>'
+            '<table class="stk"><tr><th></th><th>ETF 내</th><th>3개월</th><th>12개월</th><th>변동성</th><th>200일선</th></tr>'
+            f'{rows}</table>'
+        )
+    return f"""<div class="card"><h2>관심 종목 후보</h2>
+<div class="sub">현재 국면의 추천 섹터 ETF에서 비중이 큰 상위 종목</div>{blocks}
+<p class="note">참고용 후보 목록이며 매수 추천이 아닙니다. 시가총액 비중이 큰 종목일 뿐 저평가나 상승을 뜻하지 않습니다. 개별 종목은 ETF보다 변동이 크고 한 종목에 집중하면 크게 손실날 수 있으며, 이 종목 목록은 백테스트하지 않았습니다. 변동성은 최근 1년 연환산 값, 200일선은 현재가와 200일 이동평균의 차이입니다.</p></div>"""
+
+
+def render(now, cur, history, p, bt, sk=None):
     reg = REGIMES[cur["key"]]
     e = html.escape
     arrow = lambda up: "▲ 상승" if up else "▼ 하락"
@@ -302,6 +328,7 @@ def render(now, cur, history, p, bt):
 <div class="grid">
 <div>
 <div class="card"><h2>추천 포트폴리오</h2><div class="cls">{cls}</div>{bars}</div>
+{stocks_card(sk)}
 {backtest_card(bt)}
 <div class="card"><h2>자산별 수익률</h2>
 <table><tr><th></th><th>현재가</th><th>1개월</th><th>3개월</th><th>12개월</th></tr>{perf_rows}</table></div>
@@ -336,9 +363,11 @@ def main():
     df, keys, raw = backtest.run(macro, px, evaluate)
     bt = backtest.summarize(df, keys, raw)
 
+    sk = stocks.candidates(REGIMES[cur["key"]]["weights"], ASSETS)
+
     OUT.mkdir(exist_ok=True)
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-    (OUT / "index.html").write_text(render(now, cur, history, perf(px), bt), encoding="utf-8")
+    now =datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+    (OUT / "index.html").write_text(render(now, cur, history, perf(px), bt, sk), encoding="utf-8")
     (OUT / "data.json").write_text(
         json.dumps({"updated": now, "regime": cur["key"], "history": history}, ensure_ascii=False, indent=2),
         encoding="utf-8",
