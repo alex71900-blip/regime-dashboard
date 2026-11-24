@@ -13,9 +13,10 @@ import pandas as pd
 import requests
 import yfinance as yf
 
+import allocation
 import backtest
 import stocks
-from config import ASSETS, REGIMES, SCORE_LABELS, SCORE_RULES, SCORE_THRESHOLD
+from config import ALLOC_D_BEAR_MAX, ALLOC_REBAL_BAND, ASSETS, REGIMES, SCORE_LABELS, SCORE_RULES, SCORE_THRESHOLD
 
 OUT = Path(__file__).parent / "docs"
 HISTORY_MONTHS = 24
@@ -35,7 +36,7 @@ def fred(series_id: str) -> pd.Series:
 
 def load():
     macro = {s: fred(s) for s in ["INDPRO", "UNRATE", "CPIAUCSL", "T5YIE", "T10Y2Y"]}
-    tickers = sorted(set(ASSETS) | {"SPY", "DBC"})
+    tickers = sorted(set(ASSETS) | {"SPY", "DBC", "QQQ", "TLT", "GLD"})
     px = yf.download(tickers, period="max", auto_adjust=True, progress=False)["Close"]
     px = px.dropna(how="all")
     return macro, px
@@ -354,7 +355,61 @@ def stocks_pane(groups) -> str:
 <p class="note">참고용 후보 목록이며 매수 추천이 아닙니다. 시가총액 비중이 큰 종목일 뿐 저평가나 상승을 뜻하지 않습니다. 개별 종목은 ETF보다 변동이 크고 한 종목에 집중하면 크게 손실날 수 있으며, 이 종목 목록은 백테스트하지 않았습니다. 변동성은 최근 1년 연환산 값, 200일선·52주 고점은 현재가와의 차이, 선행 PER은 예상 이익 기준이며 데이터에 따라 비어 있을 수 있습니다.</p>"""
 
 
-def render(now, cur, history, p, bt, sk=None):
+def allocation_pane(al) -> str:
+    """배분 탭: B2 전략의 이번 주 목표 금액과 입력 지표."""
+    e = html.escape
+    head = '<div class="pagehead"><h2>이번 주 배분 (B2: D 50% + M2 50%)</h2></div>'
+    if not al:
+        return head + '<div class="card"><p class="mut">데이터 부족</p></div>'
+    names = {"QQQ": "나스닥100", "QLD": "나스닥100 2배", "TLT": "미국 장기채", "GLD": "금", "현금": ""}
+    rows = ""
+    for t, v in al["dollars"].items():
+        label = "차입" if t == "현금" and v < -0.5 else t
+        nm = f'<span class="nm">{e(names[t])}</span>' if names[t] else ""
+        rows += (
+            f'<tr><td><span class="tk">{e(label)}</span>{nm}</td>'
+            f'<td class="r num">${v:,.0f}</td><td class="r num">{al["weights"][t]*100:.1f}%</td></tr>'
+        )
+    d, m2 = al["d"], al["m2"]
+    flag = ""
+    if m2["leverage_needed"]:
+        flag = '<div class="alert">M2: 1배 초과분은 신용 또는 레버리지 ETF 필요</div>'
+    m2_rows = "".join(
+        f'<tr><td><span class="tk">{t}</span></td><td class="r num">{pct(a["vs_ma"])}</td>'
+        f'<td class="r"><span class="sig {"ok" if a["eligible"] else "no"}">{"✓" if a["eligible"] else "✗"}</span></td>'
+        f'<td class="r num">{a["v60"]*100:.1f}%</td><td class="r num">{a["weight"]*100:.1f}%</td></tr>'
+        for t, a in m2["assets"].items()
+    )
+    band = ALLOC_REBAL_BAND * 100
+    return f"""{head}
+<div class="sub num">기준일 {e(al["as_of"])} · 기준 금액 ${al["capital"]:,.0f}</div>
+<div class="grid two">
+<div>
+<div class="card"><h2>목표 금액</h2>
+<table><tr><th>자산</th><th>금액($)</th><th>비중</th></tr>{rows}</table></div>
+<div class="card"><h2>D 바구니 (50%)</h2><div class="sub">{e(d["state"])}</div>
+<table>
+<tr><td>QQQ 20일 변동성 (V20)</td><td class="r num">{d["v20"]*100:.1f}%</td></tr>
+<tr><td>QQQ 200일선 대비</td><td class="r num">{pct(d["vs_ma"])}</td></tr>
+<tr><td>200일선 가격 / 이동 필요</td><td class="r num">${al["qqq_ma200"]:,.2f} / {al["qqq_move_to_cross"]*100:+.1f}%</td></tr>
+<tr><td>노출</td><td class="r num">{d["exposure"]*100:.0f}%</td></tr>
+</table>
+<p class="note">{e(al["formula"])}. 200일선 아래면 최대 {ALLOC_D_BEAR_MAX*100:.0f}%로 제한. 1배 초과분은 QLD(금액의 절반).</p></div>
+<div class="card"><h2>M2 바구니 (50%)</h2><div class="sub">{e(m2["state"])} · 총 노출 {m2["exposure"]*100:.0f}%</div>{flag}
+<table><tr><th>자산</th><th>200일선 대비</th><th>투자 가능</th><th>V60</th><th>비중</th></tr>{m2_rows}</table></div>
+</div>
+<div>
+<div class="card"><h2>매매 규칙</h2>
+<div class="row">매주 금요일 종가 기준으로 판단하고, 다음 거래일에 체결합니다.</div>
+<div class="row">목표와 {band:g}%p 이상 차이 나는 자산만 조정합니다.</div>
+<div class="row">매월 말 두 바구니를 50:50으로 재조정합니다.</div>
+<div class="row">대시보드는 평일마다 갱신되지만 금요일 값만 매매에 사용합니다.</div></div>
+<div class="card"><h2>주의</h2>
+<p class="note" style="margin-top:0">과거 백테스트(1999~2026, 합성 데이터 포함) 기준 전체 연평균 13.3%, 최대 낙폭 -27%, 2013년 이후 연평균 21.5%입니다. 여러 차례 결과를 본 뒤 고른 조합이라 과대평가 위험이 있습니다. 투자 권유가 아니며 판단과 책임은 사용자에게 있습니다.</p></div>
+</div></div>"""
+
+
+def render(now, cur, history, p, bt, sk=None, al=None):
     reg = REGIMES[cur["key"]]
     e = html.escape
     arrow = lambda up: "▲ 상승" if up else "▼ 하락"
@@ -404,7 +459,7 @@ def render(now, cur, history, p, bt, sk=None):
 <style>{CSS}</style></head><body>
 <nav><span class="t">REGIME PORTFOLIO</span><span class="tag cur reg">{e(reg["name"])}</span></nav>
 <div class="tabs" role="tablist">
-<button class="tab on" data-tab="now">현재</button><button class="tab" data-tab="stocks">종목</button>
+<button class="tab on" data-tab="now">현재</button><button class="tab" data-tab="alloc">배분</button><button class="tab" data-tab="stocks">종목</button>
 <button class="tab" data-tab="backtest">백테스트</button><button class="tab" data-tab="market">시장</button></div>
 
 <div class="wrap">
@@ -425,6 +480,8 @@ def render(now, cur, history, p, bt, sk=None):
 <h3>물가</h3><table>{sig_rows(cur["inflation"])}</table>
 <p class="note">각 축에서 3개 신호 중 2개 이상이 긍정이면 상승으로 판정합니다.</p></div></div>
 </div></section>
+
+<section class="pane" id="alloc">{allocation_pane(al)}</section>
 
 <section class="pane" id="stocks">{stocks_pane(sk)}</section>
 
@@ -462,11 +519,12 @@ def main():
     df, keys, raw = backtest.run(macro, px, evaluate)
     bt = backtest.summarize(df, keys, raw)
 
+    al = allocation.compute(px)
     sk = stocks.candidates(REGIMES[cur["key"]]["weights"], ASSETS)
 
     OUT.mkdir(exist_ok=True)
     now =datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
-    (OUT / "index.html").write_text(render(now, cur, history, perf(px), bt, sk), encoding="utf-8")
+    (OUT / "index.html").write_text(render(now, cur, history, perf(px), bt, sk, al), encoding="utf-8")
     (OUT / "data.json").write_text(
         json.dumps({"updated": now, "regime": cur["key"], "history": history}, ensure_ascii=False, indent=2),
         encoding="utf-8",

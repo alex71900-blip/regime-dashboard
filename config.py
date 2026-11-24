@@ -80,3 +80,13 @@ SCORE_THRESHOLD = 65      # 이 점수 이상이면 화면에서 강조
 SCORE_MIN_COVERAGE = 0.6  # 가중치 기준으로 이 비율 이상의 지표가 있어야 점수를 낸다(빠진 지표는 제외하고 환산)
 
 assert sum(v[1] for v in SCORE_RULES.values()) == 100, "SCORE_RULES 가중치 합계가 100이 아닙니다"
+
+
+# ---------- 배분 탭 (전략 B2: D 50% + M2 50%) ----------
+ALLOC_CAPITAL = 10000      # 배분 탭 기준 금액(달러)
+ALLOC_D_TARGET_VOL = 0.30  # D 바구니 목표 변동성
+ALLOC_D_MAX = 2.0          # D 바구니 최대 노출(1배 초과분은 QLD)
+ALLOC_D_BEAR_MAX = 0.5     # QQQ가 200일선 아래일 때 D 최대 노출
+ALLOC_M2_TARGET_VOL = 0.15 # M2 바구니 목표 변동성
+ALLOC_M2_MAX = 2.5         # M2 바구니 총 노출 상한
+ALLOC_REBAL_BAND = 0.05    # 목표와 이 이상 차이 날 때만 조정
