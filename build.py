@@ -361,7 +361,8 @@ def allocation_pane(al) -> str:
     head = '<div class="pagehead"><h2>이번 주 배분 (B2: D 50% + M2 50%)</h2></div>'
     if not al:
         return head + '<div class="card"><p class="mut">데이터 부족</p></div>'
-    names = {"QQQ": "나스닥100", "QLD": "나스닥100 2배", "TLT": "미국 장기채", "GLD": "금", "현금": ""}
+    names = {"QQQ": "나스닥100", "QLD": "나스닥100 2배", "TLT": "미국 장기채", "UBT": "미국 장기채 2배",
+             "GLD": "금", "UGL": "금 2배", "현금": ""}
     rows = ""
     for t, v in al["dollars"].items():
         label = "차입" if t == "현금" and v < -0.5 else t
@@ -373,7 +374,7 @@ def allocation_pane(al) -> str:
     d, m2 = al["d"], al["m2"]
     flag = ""
     if m2["leverage_needed"]:
-        flag = '<div class="alert">M2: 1배 초과분은 신용 또는 레버리지 ETF 필요</div>'
+        flag = '<div class="alert">M2 총 노출이 1배를 넘어 초과분을 2배 ETF(QLD·UBT·UGL)로 채웁니다. 레버리지 ETF는 하락장에서 손실이 커지고 보유 비용이 있습니다.</div>'
     m2_rows = "".join(
         f'<tr><td><span class="tk">{t}</span></td><td class="r num">{pct(a["vs_ma"])}</td>'
         f'<td class="r"><span class="sig {"ok" if a["eligible"] else "no"}">{"✓" if a["eligible"] else "✗"}</span></td>'
@@ -394,7 +395,7 @@ def allocation_pane(al) -> str:
 <tr><td>200일선 가격 / 이동 필요</td><td class="r num">${al["qqq_ma200"]:,.2f} / {al["qqq_move_to_cross"]*100:+.1f}%</td></tr>
 <tr><td>노출</td><td class="r num">{d["exposure"]*100:.0f}%</td></tr>
 </table>
-<p class="note">{e(al["formula"])}. 200일선 아래면 최대 {ALLOC_D_BEAR_MAX*100:.0f}%로 제한. 1배 초과분은 QLD(금액의 절반).</p></div>
+<p class="note">{e(al["formula"])}. 200일선 아래면 최대 {ALLOC_D_BEAR_MAX*100:.0f}%로 제한. 1배 초과분은 QQQ 일부를 QLD로 바꿔 채웁니다(차입 없음).</p></div>
 <div class="card"><h2>M2 바구니 (50%)</h2><div class="sub">{e(m2["state"])} · 총 노출 {m2["exposure"]*100:.0f}%</div>{flag}
 <table><tr><th>자산</th><th>200일선 대비</th><th>투자 가능</th><th>V60</th><th>비중</th></tr>{m2_rows}</table></div>
 </div>
@@ -405,7 +406,7 @@ def allocation_pane(al) -> str:
 <div class="row">매월 말 두 바구니를 50:50으로 재조정합니다.</div>
 <div class="row">대시보드는 평일마다 갱신되지만 금요일 값만 매매에 사용합니다.</div></div>
 <div class="card"><h2>주의</h2>
-<p class="note" style="margin-top:0">과거 백테스트(1999~2026, 합성 데이터 포함) 기준 전체 연평균 13.3%, 최대 낙폭 -27%, 2013년 이후 연평균 21.5%입니다. 여러 차례 결과를 본 뒤 고른 조합이라 과대평가 위험이 있습니다. 투자 권유가 아니며 판단과 책임은 사용자에게 있습니다.</p></div>
+<p class="note" style="margin-top:0">과거 백테스트(1999~2026, 합성 데이터 포함) 기준(2배 ETF 비용 반영) 전체 연평균 12.9%, 최대 낙폭 -27%, 2013년 이후 연평균 20.8%입니다. 레버리지 ETF의 실제 금융비용이 더 크면 20%에 못 미칠 수 있습니다. 여러 차례 결과를 본 뒤 고른 조합이라 과대평가 위험이 있습니다. 투자 권유가 아니며 판단과 책임은 사용자에게 있습니다.</p></div>
 </div></div>"""
 
 

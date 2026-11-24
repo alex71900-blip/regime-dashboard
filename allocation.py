@@ -15,6 +15,8 @@ from config import (
 )
 
 M2_ASSETS = ["QQQ", "TLT", "GLD"]
+LEV2 = {"QQQ": "QLD", "TLT": "UBT", "GLD": "UGL"}  # 2배 ETF
+DOLLAR_KEYS = ["QQQ", "QLD", "TLT", "UBT", "GLD", "UGL"]
 MA_DAYS = 200
 D_VOL_DAYS = 20
 M2_VOL_DAYS = 60
@@ -35,15 +37,19 @@ def _sleeve_d(qqq: pd.Series, sleeve: float) -> dict:
     exposure = ALLOC_D_MAX if v20 <= 0 else min(ALLOC_D_MAX, ALLOC_D_TARGET_VOL / v20)
     if not trend_up:
         exposure = min(exposure, ALLOC_D_BEAR_MAX)
-    qqq_usd = sleeve * min(exposure, 1.0)
-    qld_usd = sleeve * max(exposure - 1.0, 0.0) / 2  # QLD는 2배라 금액의 절반이면 추가 노출이 된다
+    # 1배 초과분은 QLD로: QQQ 비중 u, QLD 비중 l (u + 2l = 노출, u + l = 1) -> 차입 없이 바구니 안에서 해결
+    if exposure > 1:
+        qld_usd = sleeve * (exposure - 1.0)
+        qqq_usd = sleeve * (2.0 - exposure)
+    else:
+        qqq_usd, qld_usd = sleeve * exposure, 0.0
     return {
         "state": "상승 추세 (200일선 위)" if trend_up else "하락 추세 (200일선 아래, 노출 제한)",
         "exposure": exposure,
         "v20": v20,
         "trend_up": trend_up,
         "vs_ma": last / ma - 1,
-        "usd": {"QQQ": qqq_usd, "QLD": qld_usd, "TLT": 0.0, "GLD": 0.0},
+        "usd": {**{k: 0.0 for k in DOLLAR_KEYS}, "QQQ": qqq_usd, "QLD": qld_usd},
         "sleeve": sleeve,
     }
 
@@ -74,14 +80,21 @@ def _sleeve_m2(px: pd.DataFrame, sleeve: float) -> dict:
             for t, wi in zip(elig, w):
                 assets[t]["weight"] = float(wi)
             exposure = float(w.sum())
-    usd = {"QQQ": 0.0, "QLD": 0.0, "TLT": 0.0, "GLD": 0.0}
+    # 총 노출이 1배를 넘으면 차입 대신 2배 ETF로 채운다: 2배 ETF 비중 l, 일반 ETF 비중 u (u + 2l = 목표, u + l = 1)
+    usd = {k: 0.0 for k in DOLLAR_KEYS}
     for t in M2_ASSETS:
-        usd[t] = sleeve * assets[t]["weight"]
+        e = assets[t]["weight"]
+        if exposure > 1:
+            lev = (exposure - 1) * e / exposure
+            usd[t] = sleeve * e * (2 - exposure) / exposure
+            usd[LEV2[t]] = sleeve * lev
+        else:
+            usd[t] = sleeve * e
     return {
         "state": "모든 자산이 200일선 아래 (전액 현금)" if exposure == 0 else f"{len(elig)}개 자산 투자",
         "exposure": exposure,
         "assets": assets,
-        "leverage_needed": exposure > 1.0,
+        "leverage_needed": exposure > 1.0,  # 2배 ETF 사용 여부
         "usd": usd,
         "sleeve": sleeve,
     }
@@ -98,7 +111,7 @@ def compute(px: pd.DataFrame, capital: float = ALLOC_CAPITAL):
         sleeve = capital / 2
         d = _sleeve_d(px["QQQ"], sleeve)
         m2 = _sleeve_m2(px, sleeve)
-        dollars = {t: d["usd"][t] + m2["usd"][t] for t in ("QQQ", "QLD", "TLT", "GLD")}
+        dollars = {t: d["usd"][t] + m2["usd"][t] for t in DOLLAR_KEYS}
         dollars["현금"] = capital - sum(dollars.values())  # 음수면 차입
         q = px["QQQ"]
         ma200 = float(q.iloc[-MA_DAYS:].mean())

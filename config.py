@@ -88,5 +88,5 @@ ALLOC_D_TARGET_VOL = 0.30  # D 바구니 목표 변동성
 ALLOC_D_MAX = 2.0          # D 바구니 최대 노출(1배 초과분은 QLD)
 ALLOC_D_BEAR_MAX = 0.5     # QQQ가 200일선 아래일 때 D 최대 노출
 ALLOC_M2_TARGET_VOL = 0.15 # M2 바구니 목표 변동성
-ALLOC_M2_MAX = 2.5         # M2 바구니 총 노출 상한
+ALLOC_M2_MAX = 2.0         # M2 바구니 총 노출 상한(2배 ETF로 구현 가능한 최대)
 ALLOC_REBAL_BAND = 0.05    # 목표와 이 이상 차이 날 때만 조정
