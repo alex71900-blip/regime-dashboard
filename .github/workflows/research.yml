@@ -1,0 +1,40 @@
+name: Research backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "research/ 안의 실행할 스크립트 이름 (확장자 제외)"
+        required: true
+        default: "two_asset"
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Run research script
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          case "$SCRIPT" in *[!a-z0-9_]*|"") echo "잘못된 스크립트 이름"; exit 1;; esac
+          python "research/${SCRIPT}.py" > "research/${SCRIPT}_result.md"
+          cat "research/${SCRIPT}_result.md"
+      - name: Commit result
+        env:
+          SCRIPT: ${{ inputs.script }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "research/${SCRIPT}_result.md"
+          git diff --cached --quiet || git commit -m "Research result: ${SCRIPT}"
+          git pull --rebase origin main
+          git push
